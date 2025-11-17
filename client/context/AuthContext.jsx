@@ -3,7 +3,6 @@ import axios from 'axios'
 import toast from "react-hot-toast";
 import { io } from "socket.io-client"
 
-
 const backendUrl = import.meta.env.VITE_BACKEND_URL;
 axios.defaults.baseURL = backendUrl;
 
@@ -16,9 +15,10 @@ export const AuthProvider = ({ children })=>{
     const [onlineUsers, setOnlineUsers] = useState([]);
     const [socket, setSocket] = useState(null);
 
-    // Check if user is authenticated and if so, set the user data and connect the socket
+    // Check if user is authenticated
     const checkAuth = async () => {
         try {
+            // Ab yeh request 'Authorization' header ke saath jaayegi
             const { data } = await axios.get("/api/auth/check");
             if (data.success) {
                 setAuthUser(data.user)
@@ -29,17 +29,19 @@ export const AuthProvider = ({ children })=>{
         }
     }
 
-// Login function to handle user authentication and socket connection
-
+// Login function
 const login = async (state, credentials)=>{
     try {
         const { data } = await axios.post(`/api/auth/${state}`, credentials);
         if (data.success){
             setAuthUser(data.userData);
             connectSocket(data.userData);
-            axios.defaults.headers.common["token"] = data.token;
+            
+           
+            axios.defaults.headers.common["Authorization"] = `Bearer ${data.token}`;
+            
             setToken(data.token);
-            localStorage.setItem("token", data.token)
+            localStorage.setItem("token", data.token) // <-- Aap "token" naam se save kar rahe hain, yeh bilkul theek hai
             toast.success(data.message)
         }else{
             toast.error(data.message)
@@ -49,22 +51,24 @@ const login = async (state, credentials)=>{
     }
 }
 
-// Logout function to handle user logout and socket disconnection
-
+// Logout function
     const logout = async () =>{
         localStorage.removeItem("token");
         setToken(null);
         setAuthUser(null);
         setOnlineUsers([]);
-        axios.defaults.headers.common["token"] = null;
+        
+        // <-- YEH LINE UPDATE HUI HAI
+        delete axios.defaults.headers.common["Authorization"]; // Header ko delete kar dein
+        
         toast.success("Logged out successfully")
         socket.disconnect();
     }
 
-    // Update profile function to handle user profile updates
-
+    // Update profile function
     const updateProfile = async (body)=>{
         try {
+            // Yeh request bhi ab automatically 'Authorization' header ke saath jaayegi
             const { data } = await axios.put("/api/auth/update-profile", body);
             if(data.success){
                 setAuthUser(data.user);
@@ -75,7 +79,7 @@ const login = async (state, credentials)=>{
         }
     }
 
-    // Connect socket function to handle socket connection and online users updates
+    // Connect socket function
     const connectSocket = (userData)=>{
         if(!userData || socket?.connected) return;
         const newSocket = io(backendUrl, {
@@ -93,7 +97,8 @@ const login = async (state, credentials)=>{
 
     useEffect(()=>{
         if(token){
-            axios.defaults.headers.common["token"] = token;
+         
+            axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
         }
         checkAuth();
     },[])
