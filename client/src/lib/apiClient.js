@@ -9,7 +9,6 @@ apiClient.interceptors.request.use(
     const token = localStorage.getItem('chat-token'); 
 
     if (token) {
-      // Agar token hai, toh usse header mein 'Bearer' ke saath attach kar do
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
