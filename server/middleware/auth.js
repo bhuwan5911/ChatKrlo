@@ -21,10 +21,12 @@ export const protectRoute = async (req, res, next) => {
 
     if (!token) {
       // YEH ERROR AAPKO AA RAHA HAI
+      
       return res.status(401).json({ success: false, message: "jwt must be provided" });
     }
 
     // 3. Token ko verify karein
+    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     if (!decoded) {
@@ -32,6 +34,7 @@ export const protectRoute = async (req, res, next) => {
     }
 
     // 4. User ko database se fetch karein (bina password ke)
+    
     const user = await User.findById(decoded.userId || decoded.id).select("-password");
 
     if (!user) {
@@ -39,6 +42,7 @@ export const protectRoute = async (req, res, next) => {
     }
 
     // 5. User ko request object (req.user) mein daal dein
+    
     req.user = user;
     next(); // Agle function (controller) par jaayein
 
