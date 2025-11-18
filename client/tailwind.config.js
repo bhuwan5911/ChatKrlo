@@ -6,7 +6,6 @@ export default {
   ],
   theme: {
     extend: {
-      // Yahaan hum aapki image add kar rahe hain
       backgroundImage: {
         'custom-bg': "url('/bg.png')", 
       }
