@@ -16,7 +16,7 @@ export const connectDB = async () => {
     console.log(`MongoDB Connected: ${conn.connection.host}`);
   
   } catch (error) {
-    // 3. Agar connection fail ho (jaise ghalat password)
+    // 3. Agar connection fail ho (jaise ghalat password).
     console.error(`Error connecting to MongoDB: ${error.message}`);
     process.exit(1); // Server band kar dega
   }
