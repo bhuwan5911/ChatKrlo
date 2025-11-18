@@ -9,11 +9,11 @@ import redisClient from "./lib/redis.js";
 // <-- CHANGE 1: app, server, aur io teeno ko wahan se import karein
 import { app, server, io } from "./lib/socket.js"; 
 
-// <-- CHANGE 2: Yahan se 'const app = ...', 'const server = ...' aur 'io' ka initialization HATA DIYA GAYA HAI.
+//  Yahan se 'const app = ...', 'const server = ...' aur 'io' ka initialization HATA DIYA GAYA HAI.
 // Kyunki woh ab socket.js mein ban rahe hain.
 
 // Middleware setup
-app.use(express.json({limit: "50mb"})); // Limit badha dijiye images ke liye
+app.use(express.json({limit: "50mb"})); 
 app.use(cors({
     origin: "http://localhost:5173",
     credentials: true
