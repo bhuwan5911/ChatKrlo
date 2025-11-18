@@ -3,7 +3,7 @@ import { createClient } from 'redis';
 // Redis client banayein
 const redisClient = createClient({
   // Default URL (localhost on port 6379)
-  // Agar Docker ya local par chala rahe hain toh URL daalne ki zaroorat nahi.
+  // Agar Docker ya local par chala rahe hain toh URL daalne ki zaroorat nahi
 });
 
 redisClient.on('error', (err) => console.log('Redis Client Error', err));
