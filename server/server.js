@@ -6,10 +6,7 @@ import userRouter from "./routes/userRoutes.js";
 import messageRouter from "./routes/messageRoutes.js";
 import redisClient from "./lib/redis.js"; 
 
-// <-- CHANGE 1: app, server, aur io teeno ko wahan se import karein
 import { app, server, io } from "./lib/socket.js"; 
-
-
 
 // Middleware setup
 app.use(express.json({limit: "50mb"})); 
@@ -32,15 +29,11 @@ const startSubscriber = async () => {
         await subscriber.connect();
         console.log(" Redis Subscriber connected.");
 
-        // 'user-updates' channel ko sunein
         await subscriber.subscribe("user-updates", (message) => {
             console.log("PUBSUB: Received message from 'user-updates' channel");
             
-            // Message ko JSON mein parse karein
             const updatedUser = JSON.parse(message);
 
-            // Sabhi connected clients ko update bhej dein
-            // Yahan hum imported 'io' use kar rahe hain
             io.emit("profile-updated", updatedUser);
         });
 
@@ -50,15 +43,14 @@ const startSubscriber = async () => {
 }
 
 // Connect to MongoDB
-// Note: 'server.listen' use karein, 'app.listen' nahi
 if(process.env.NODE_ENV !== "production"){
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => {
         console.log("Server is running on PORT: " + PORT);
         connectDB();
-        startSubscriber(); // Subscriber yahan start karein
+        startSubscriber(); 
     });
 }
 
-// Export server for Vercel (agar chahiye toh)
+// Export server for Vercel 
 export default server;
