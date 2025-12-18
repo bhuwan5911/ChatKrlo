@@ -6,17 +6,17 @@ import {
     updateProfile, 
     getUserById 
 } from "../controllers/userController.js";
-import { protectRoute } from "../middleware/auth.js";
+// Match the name 'protectRoute' from your middleware file
+import { protectRoute } from "../middleware/authMiddleware.js";
 
 const userRouter = express.Router();
 
 userRouter.post("/signup", signup);
 userRouter.post("/login", login);
+
+// Use protectRoute here
 userRouter.put("/update-profile", protectRoute, updateProfile);
 userRouter.get("/check", protectRoute, checkAuth);
-
-    
 userRouter.get("/users/:id", protectRoute, getUserById);
-
 
 export default userRouter;

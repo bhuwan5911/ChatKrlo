@@ -7,11 +7,10 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173"], // Ensure this matches your frontend URL
+    origin: ["http://localhost:5173"],
   },
 });
 
-// Store online users {userId: socketId}
 const userSocketMap = {}; 
 
 export const getReceiverSocketId = (userId) => {
@@ -19,16 +18,28 @@ export const getReceiverSocketId = (userId) => {
 };
 
 io.on("connection", (socket) => {
-  console.log("A user connected", socket.id);
-
   const userId = socket.handshake.query.userId;
   if (userId) userSocketMap[userId] = socket.id;
 
-  // Broadcast online users to everyone
+  console.log(`User ${userId} connected with socket ${socket.id}`);
+
+  // 1. BROADCAST ONLINE USERS
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
+  // 2. JOIN GROUP ROOMS
+  // When a user connects, we should technically make them join all their groups.
+  // For now, we will provide a way for the frontend to tell the socket to join a group.
+  socket.on("joinGroup", (groupId) => {
+    socket.join(groupId);
+    console.log(`User ${userId} joined Group Room: ${groupId}`);
+  });
+
+  socket.on("leaveGroup", (groupId) => {
+    socket.leave(groupId);
+    console.log(`User ${userId} left Group Room: ${groupId}`);
+  });
+
   socket.on("disconnect", () => {
-    console.log("A user disconnected", socket.id);
     delete userSocketMap[userId];
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
