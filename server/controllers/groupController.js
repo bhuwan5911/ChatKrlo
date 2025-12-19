@@ -1,60 +1,125 @@
-import Group from "../models/Group.js";
-import Message from "../models/Message.js";
-import User from "../models/User.js";
-import cloudinary from "../lib/cloudinary.js";
+import Group from "../models/group.js";
+import Message from "../models/message.js";
 
-// 1. Create a New Group
+// ✅ Create group
 export const createGroup = async (req, res) => {
   try {
-    const { name, members, description } = req.body;
-    const adminId = req.user._id;
+    const { name, members } = req.body;
 
-    if (!name || !members || members.length < 1) {
-      return res.status(400).json({ success: false, message: "Group name and at least one member are required" });
-    }
-
-    // Add the admin to the members list automatically
-    const allMembers = [...new Set([...members, adminId.toString()])];
-
-    const newGroup = new Group({
+    const group = await Group.create({
       name,
-      description,
-      admin: adminId,
-      members: allMembers,
+      admin: req.user._id,
+      members: [req.user._id, ...members],
     });
 
-    await newGroup.save();
-    res.status(201).json({ success: true, group: newGroup });
-  } catch (error) {
-    console.error("Error in createGroup:", error.message);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    const populated = await Group.findById(group._id)
+      .populate("members", "fullName profilePic email")
+      .populate("admin", "fullName email");
+
+    res.json({ success: true, group: populated });
+  } catch {
+    res.status(500).json({ success: false, message: "Group creation failed" });
   }
 };
 
-// 2. Get all Groups I am a part of
+// ✅ Get my groups
 export const getMyGroups = async (req, res) => {
   try {
-    const userId = req.user._id;
-    // Find groups where my ID is in the 'members' array
-    const groups = await Group.find({ members: userId }).populate("admin", "fullName email");
-    res.status(200).json({ success: true, groups });
-  } catch (error) {
-    console.error("Error in getMyGroups:", error.message);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    const groups = await Group.find({
+      members: req.user._id,
+    })
+      .populate("members", "fullName profilePic email")
+      .populate("admin", "fullName email");
+
+    res.json({ success: true, groups });
+  } catch {
+    res.status(500).json({ success: false, message: "Failed to load groups" });
   }
 };
 
-// 3. Get Messages for a specific Group
+// ✅ Get group messages
 export const getGroupMessages = async (req, res) => {
   try {
-    const { groupId } = req.params;
-    const messages = await Message.find({ groupId })
-      .populate("senderId", "fullName profilePic")
-      .sort({ createdAt: 1 });
+    const messages = await Message.find({
+      groupId: req.params.groupId,
+    }).populate("senderId", "fullName profilePic");
 
-    res.status(200).json({ success: true, messages });
-  } catch (error) {
-    console.error("Error in getGroupMessages:", error.message);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.json({ success: true, messages });
+  } catch {
+    res.status(500).json({ success: false, message: "Failed to load messages" });
+  }
+};
+
+// ✅ Add member
+export const addMember = async (req, res) => {
+  try {
+    const { groupId, userId } = req.body;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ success: false });
+
+    if (!group.admin.equals(req.user._id)) {
+      return res.status(403).json({ success: false, message: "Only admin can add" });
+    }
+
+    if (!group.members.includes(userId)) {
+      group.members.push(userId);
+      await group.save();
+    }
+
+    const updated = await Group.findById(groupId)
+      .populate("members", "fullName profilePic email")
+      .populate("admin", "fullName email");
+
+    res.json({ success: true, group: updated });
+  } catch {
+    res.status(500).json({ success: false, message: "Add member failed" });
+  }
+};
+
+// ✅ Remove member
+export const removeMember = async (req, res) => {
+  try {
+    const { groupId, userId } = req.body;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ success: false });
+
+    if (!group.admin.equals(req.user._id)) {
+      return res.status(403).json({ success: false, message: "Only admin can remove" });
+    }
+
+    group.members = group.members.filter(id => id.toString() !== userId);
+    await group.save();
+
+    const updated = await Group.findById(groupId)
+      .populate("members", "fullName profilePic email")
+      .populate("admin", "fullName email");
+
+    res.json({ success: true, group: updated });
+  } catch {
+    res.status(500).json({ success: false, message: "Remove member failed" });
+  }
+};
+
+// ✅ Delete group
+export const deleteGroup = async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.groupId);
+
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (!group.admin.equals(req.user._id)) {
+      return res.status(403).json({ success: false, message: "Only admin can delete group" });
+    }
+
+    await Group.findByIdAndDelete(req.params.groupId);
+    await Message.deleteMany({ groupId: req.params.groupId });
+
+    res.json({ success: true, message: "Group deleted" });
+  } catch {
+    res.status(500).json({ success: false, message: "Delete failed" });
   }
 };

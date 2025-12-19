@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
+import Group from "../models/group.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -11,37 +12,38 @@ const io = new Server(server, {
   },
 });
 
-const userSocketMap = {}; 
+const userSocketMap = {};
 
 export const getReceiverSocketId = (userId) => {
   return userSocketMap[userId];
 };
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   const userId = socket.handshake.query.userId;
-  if (userId) userSocketMap[userId] = socket.id;
 
-  console.log(`User ${userId} connected with socket ${socket.id}`);
+  if (userId) {
+    userSocketMap[userId] = socket.id;
+    console.log(`User ${userId} connected with socket ${socket.id}`);
 
-  // 1. BROADCAST ONLINE USERS
+    // ✅ AUTO JOIN ALL GROUP ROOMS OF THIS USER
+    try {
+      const groups = await Group.find({ members: userId }).select("_id");
+      groups.forEach((g) => {
+        socket.join(g._id.toString());
+        console.log(`User ${userId} auto-joined group ${g._id}`);
+      });
+    } catch (err) {
+      console.log("Error joining groups:", err.message);
+    }
+  }
+
+  // ✅ Broadcast online users
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-  // 2. JOIN GROUP ROOMS
-  // When a user connects, we should technically make them join all their groups.
-  // For now, we will provide a way for the frontend to tell the socket to join a group.
-  socket.on("joinGroup", (groupId) => {
-    socket.join(groupId);
-    console.log(`User ${userId} joined Group Room: ${groupId}`);
-  });
-
-  socket.on("leaveGroup", (groupId) => {
-    socket.leave(groupId);
-    console.log(`User ${userId} left Group Room: ${groupId}`);
-  });
-
   socket.on("disconnect", () => {
-    delete userSocketMap[userId];
+    if (userId) delete userSocketMap[userId];
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    console.log(`User ${userId} disconnected`);
   });
 });
 

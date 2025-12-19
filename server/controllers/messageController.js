@@ -2,131 +2,145 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
-import Groq from "groq-sdk"; 
+import Groq from "groq-sdk";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// Initialize Groq
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const BOT_ID = process.env.BOT_ID;
 
+// ✅ Users for sidebar
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
-    res.status(200).json({ success: true, users: filteredUsers });
-  } catch (error) {
-    res.status(500).json({ error: "Internal server error" });
+    const users = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
+    res.json({ success: true, users });
+  } catch {
+    res.status(500).json({ success: false });
   }
 };
 
+// ✅ Get private messages
 export const getMessages = async (req, res) => {
   try {
-    const { id: userToChatId } = req.params; // This works for User ID or Group ID
+    const { id } = req.params;
     const myId = req.user._id;
 
-    // We check if we are fetching 1v1 messages OR group messages
     const messages = await Message.find({
       $or: [
-        { senderId: myId, receiverId: userToChatId },
-        { senderId: userToChatId, receiverId: myId },
-        { groupId: userToChatId } // Added check for group messages
+        { senderId: myId, receiverId: id },
+        { senderId: id, receiverId: myId },
       ],
     }).sort({ createdAt: 1 });
 
-    if (!messages) return res.status(200).json({ success: true, messages: [] });
-
-    res.status(200).json({ success: true, messages });
-  } catch (error) {
-    console.log("Error in getMessages:", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    res.json({ success: true, messages });
+  } catch {
+    res.status(500).json({ success: false });
   }
 };
 
+// ✅ Mark message seen
 export const markMessageAsSeen = async (req, res) => {
   try {
-    const { id } = req.params;
-    await Message.findByIdAndUpdate(id, { seen: true });
+    await Message.findByIdAndUpdate(req.params.id, { seen: true });
     res.json({ success: true });
-  } catch (error) {
-    res.json({ success: false, message: error.message });
+  } catch {
+    res.json({ success: false });
   }
 };
 
+// ✅ Send message
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image, groupId } = req.body; // groupId added here
+    const { text, image, groupId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
     let imageUrl;
     if (image) {
-      const uploadResponse = await cloudinary.uploader.upload(image);
-      imageUrl = uploadResponse.secure_url;
+      const upload = await cloudinary.uploader.upload(image);
+      imageUrl = upload.secure_url;
     }
 
-    // --- SMART ROUTING LOGIC ---
     const newMessage = new Message({
       senderId,
+      receiverId: groupId ? null : receiverId,
+      groupId: groupId || null,
       text,
       image: imageUrl,
-      groupId: groupId || null,
-      receiverId: groupId ? null : receiverId,
     });
 
     await newMessage.save();
 
+    // ✅ Group
     if (groupId) {
-      // 🏘️ LOGIC: BROADCAST TO GROUP
       io.to(groupId).emit("newMessage", newMessage);
-      console.log(`Message broadcasted to room: ${groupId}`);
-    } else {
-      // 👤 LOGIC: PRIVATE 1v1
-      const receiverSocketId = getReceiverSocketId(receiverId);
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("newMessage", newMessage);
-      }
+    } 
+    // ✅ Private
+    else {
+      const socketId = getReceiverSocketId(receiverId);
+      if (socketId) io.to(socketId).emit("newMessage", newMessage);
 
-      // --- AI BOT LOGIC (GROQ) ---
-      const BOT_ID = process.env.BOT_ID; 
       if (receiverId === BOT_ID) {
-        handleAiResponse(text, senderId, BOT_ID);
+        handleAiResponse(text, senderId);
       }
     }
 
-    res.status(201).json({ success: true, newMessage });
-
-  } catch (error) {
-    console.log("Error in sendMessage:", error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Internal server error" });
-    }
+    res.json({ success: true, newMessage });
+  } catch {
+    res.status(500).json({ success: false });
   }
 };
 
-// Helper function for AI logic to keep code clean
-async function handleAiResponse(text, senderId, BOT_ID) {
+// ✅ CLEAR PRIVATE CHAT (THIS FIXES YOUR ERROR)
+export const clearPrivateChat = async (req, res) => {
   try {
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [{ role: "user", content: text || "Hello!" }],
-      model: "llama-3.1-8b-instant", 
+    const myId = req.user._id;
+    const { id: otherUserId } = req.params;
+
+    await Message.deleteMany({
+      $or: [
+        { senderId: myId, receiverId: otherUserId },
+        { senderId: otherUserId, receiverId: myId },
+      ],
     });
 
-    const aiResponse = chatCompletion.choices[0]?.message?.content || "I'm thinking...";
+    res.json({ success: true, message: "Chat cleared" });
+  } catch {
+    res.status(500).json({ success: false, message: "Clear failed" });
+  }
+};
+
+// ✅ FAST BOT REPLY (max 2 sec)
+async function handleAiResponse(text, senderId) {
+  try {
+    const aiPromise = groq.chat.completions.create({
+      messages: [{ role: "user", content: text || "Hello" }],
+      model: "llama-3.1-8b-instant",
+    });
+
+    const timeoutPromise = new Promise(resolve =>
+      setTimeout(() => resolve(null), 2000)
+    );
+
+    const result = await Promise.race([aiPromise, timeoutPromise]);
+
+    const aiText =
+      result?.choices?.[0]?.message?.content ||
+      "I'm here 🙂 How can I help you?";
 
     const botMessage = new Message({
       senderId: BOT_ID,
       receiverId: senderId,
-      text: aiResponse,
+      text: aiText,
     });
 
     await botMessage.save();
 
-    const senderSocketId = getReceiverSocketId(senderId);
-    if (senderSocketId) {
-      io.to(senderSocketId).emit("newMessage", botMessage);
-    }
-  } catch (error) {
-    console.error("AI Logic Error:", error.message);
+    const socketId = getReceiverSocketId(senderId);
+    if (socketId) io.to(socketId).emit("newMessage", botMessage);
+  } catch (err) {
+    console.error("Bot error:", err.message);
   }
 }

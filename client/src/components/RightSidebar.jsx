@@ -1,52 +1,94 @@
-import React, { useContext, useEffect, useState } from 'react'
-import assets, { imagesDummyData } from '../assets/assets'
-import { ChatContext } from '../../context/ChatContext'
-import { AuthContext } from '../../context/AuthContext'
+import React, { useContext } from 'react';
+import assets from '../assets/assets.js';
+import { ChatContext } from '../../context/ChatContext.jsx';
+import { AuthContext } from '../../context/AuthContext.jsx';
 
 const RightSidebar = () => {
+  const {
+    selectedUser,
+    users,
+    addGroupMember,
+    removeGroupMember
+  } = useContext(ChatContext);
 
-    const {selectedUser, messages} = useContext(ChatContext)
-    const {logout, onlineUsers} = useContext(AuthContext)
-    const [msgImages, setMsgImages] = useState([])
+  const { authUser } = useContext(AuthContext);
 
-    // Get all the images from the messages and set them to state
-    useEffect(()=>{
-        setMsgImages(
-            messages.filter(msg => msg.image).map(msg=>msg.image)
-        )
-    },[messages])
+  if (!selectedUser || !selectedUser.isGroup) return null;
 
-  return selectedUser && (
-    <div className={`bg-[#8185B2]/10 text-white w-full relative overflow-y-scroll ${selectedUser ? "max-md:hidden" : ""}`}>
+  // ✅ Strong admin check
+  const adminId =
+    typeof selectedUser.admin === "object"
+      ? selectedUser.admin?._id
+      : selectedUser.admin;
 
-        <div className='pt-16 flex flex-col items-center gap-2 text-xs font-light mx-auto'>
-            <img src={selectedUser?.profilePic || assets.avatar_icon} alt=""
-            className='w-20 aspect-[1/1] rounded-full' />
-            <h1 className='px-10 text-xl font-medium mx-auto flex items-center gap-2'>
-                {onlineUsers.includes(selectedUser._id) && <p className='w-2 h-2 rounded-full bg-green-500'></p>}
-                {selectedUser.fullName}
-            </h1>
-            <p className='px-10 mx-auto'>{selectedUser.bio}</p>
-        </div>
+  const isAdmin = adminId === authUser._id;
 
-        <hr className="border-[#ffffff50] my-4"/>
+  return (
+    <div className="bg-[#8185B2]/10 text-white w-full flex flex-col h-full overflow-hidden max-md:hidden">
 
-        <div className="px-5 text-xs">
-            <p>Media</p>
-            <div className='mt-2 max-h-[200px] overflow-y-scroll grid grid-cols-2 gap-4 opacity-80'>
-                {msgImages.map((url, index)=>(
-                    <div key={index} onClick={()=> window.open(url)} className='cursor-pointer rounded'>
-                        <img src={url} alt="" className='h-full rounded-md'/>
-                    </div>
-                ))}
+      {/* Header */}
+      <div className='pt-10 flex flex-col items-center gap-2 text-sm'>
+        <img src={assets.avatar_icon} className='w-20 h-20 rounded-full' />
+        <h2 className='text-xl font-semibold'>{selectedUser.name}</h2>
+        <p className='text-gray-400'>
+          {selectedUser.members.length} members
+        </p>
+      </div>
+
+      {/* Members */}
+      <div className="px-5 mt-6 flex-1 overflow-y-auto custom-scrollbar">
+        <p className="text-xs mb-2">Members</p>
+
+        {selectedUser.members.map((m) => (
+          <div key={m._id} className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <img
+                src={m.profilePic || assets.avatar_icon}
+                className="w-8 h-8 rounded-full"
+              />
+              <span className="text-sm">{m.fullName}</span>
             </div>
-        </div>
 
-        <button onClick={()=> logout()} className='absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-400 to-violet-600 text-white border-none text-sm font-light py-2 px-20 rounded-full cursor-pointer'>
-            Logout
-        </button>
+            {isAdmin && m._id !== authUser._id && (
+              <button
+                onClick={() =>
+                  removeGroupMember(selectedUser._id, m._id)
+                }
+                className="text-red-400 text-xs hover:underline"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+
+        {/* Add members (admin only) */}
+        {isAdmin && (
+          <>
+            <p className="text-xs mt-6 mb-2">Add Members</p>
+
+            {users
+              .filter(
+                u => !selectedUser.members.find(m => m._id === u._id)
+              )
+              .map(u => (
+                <div key={u._id} className="flex items-center justify-between mb-3">
+                  <span className="text-sm">{u.fullName}</span>
+                  <button
+                    onClick={() =>
+                      addGroupMember(selectedUser._id, u._id)
+                    }
+                    className="text-green-400 text-xs hover:underline"
+                  >
+                    Add
+                  </button>
+                </div>
+              ))}
+          </>
+        )}
+      </div>
     </div>
-  )
-}
+  );
+};
 
-export default RightSidebar
+export default RightSidebar;

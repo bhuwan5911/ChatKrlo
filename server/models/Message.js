@@ -7,12 +7,10 @@ const messageSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    // Keep this for 1v1
     receiverId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
-    // ADD THIS for Groups
     groupId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Group",
@@ -23,14 +21,12 @@ const messageSchema = new mongoose.Schema(
     image: {
       type: String,
     },
-    seen: {
-      type: Boolean,
-      default: false,
-    },
   },
   { timestamps: true }
 );
 
-const Message = mongoose.model("Message", messageSchema);
+// ✅ Prevent OverwriteModelError
+const Message =
+  mongoose.models.Message || mongoose.model("Message", messageSchema);
 
 export default Message;
