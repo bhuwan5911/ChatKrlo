@@ -1,26 +1,34 @@
-import React, { useContext } from 'react';
-import Sidebar from '../components/Sidebar';
-import ChatContainer from '../components/ChatContainer';
-import RightSidebar from '../components/RightSidebar';
-import { ChatContext } from '../../context/ChatContext';
+import React, { useContext } from "react";
+import Sidebar from "../components/Sidebar";
+import ChatContainer from "../components/ChatContainer";
+import RightSidebar from "../components/RightSidebar";
+import { ChatContext } from "../../context/ChatContext";
+
+import CallScreen from "../components/CallScreen";
+import IncomingCallPopup from "../components/IncomingCallPopup";
 
 const HomePage = () => {
   const { selectedUser } = useContext(ChatContext);
 
   return (
-    <div className='w-full h-screen sm:px-[15%] sm:py-[5%]'>
-      <div className={`backdrop-blur-xl border-2 border-gray-600 rounded-2xl 
+    <div className="w-full h-screen sm:px-[15%] sm:py-[5%] relative">
+      <div
+        className={`backdrop-blur-xl border-2 border-gray-600 rounded-2xl 
         overflow-hidden h-full grid relative min-h-0
-        ${selectedUser
-          ? 'grid-cols-1 md:grid-cols-[1fr_1.5fr_1fr]'
-          : 'grid-cols-1 md:grid-cols-2'
-        }`}>
-
+        ${
+          selectedUser
+            ? "grid-cols-1 md:grid-cols-[1fr_1.5fr_1fr]"
+            : "grid-cols-1 md:grid-cols-2"
+        }`}
+      >
         <Sidebar />
         <ChatContainer />
         <RightSidebar />
-
       </div>
+
+      {/* 📞 Global Call UIs */}
+      <IncomingCallPopup />
+      <CallScreen />
     </div>
   );
 };
