@@ -4,9 +4,6 @@ import ChatContainer from "../components/ChatContainer";
 import RightSidebar from "../components/RightSidebar";
 import { ChatContext } from "../../context/ChatContext";
 
-import CallScreen from "../components/CallScreen";
-import IncomingCallPopup from "../components/IncomingCallPopup";
-
 const HomePage = () => {
   const { selectedUser } = useContext(ChatContext);
 
@@ -25,10 +22,6 @@ const HomePage = () => {
         <ChatContainer />
         <RightSidebar />
       </div>
-
-      {/* 📞 Global Call UIs */}
-      <IncomingCallPopup />
-      <CallScreen />
     </div>
   );
 };

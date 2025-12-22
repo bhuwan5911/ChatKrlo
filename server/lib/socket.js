@@ -64,11 +64,11 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ❄️ ICE candidates
+  // ❄️ ICE candidates  ✅ FIXED HERE
   socket.on("ice-candidate", ({ to, candidate }) => {
     const toSocket = userSocketMap[to];
     if (toSocket) {
-      io.to(toSocket).emit("ice-candidate", candidate);
+      io.to(toSocket).emit("ice-candidate", { candidate }); // ✅ wrap in object
     }
   });
 

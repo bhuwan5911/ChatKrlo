@@ -6,7 +6,6 @@ import { io } from "socket.io-client";
 const backendUrl =
   import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
-// ✅ Axios instance
 const api = axios.create({
   baseURL: backendUrl,
   timeout: 10000,
@@ -26,7 +25,7 @@ export const AuthProvider = ({ children }) => {
   const ringtoneRef = useRef(null);
   const loggingRef = useRef(false);
 
-  // 🔔 ringtone helpers
+  // 🔔 Play ringtone
   const playRingtone = () => {
     if (!ringtoneRef.current) {
       ringtoneRef.current = new Audio("/ringtone.mp3");
@@ -35,6 +34,7 @@ export const AuthProvider = ({ children }) => {
     ringtoneRef.current.play().catch(() => {});
   };
 
+  // 🔕 Stop ringtone
   const stopRingtone = () => {
     if (ringtoneRef.current) {
       ringtoneRef.current.pause();
@@ -42,10 +42,10 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 🔌 connect socket
+  // 🔌 Connect socket
   const connectSocket = (user) => {
     if (!user) return;
-    if (socket?.connected) return; // ✅ already connected
+    if (socket) return; // ✅ prevent duplicate socket
 
     const newSocket = io(backendUrl, {
       query: { userId: user._id },
@@ -54,26 +54,31 @@ export const AuthProvider = ({ children }) => {
 
     setSocket(newSocket);
 
+    // ✅ Online users
     newSocket.on("getOnlineUsers", (users) => {
       setOnlineUsers(users || []);
     });
 
+    // 📞 Incoming call
     newSocket.on("incoming-call", (data) => {
       setIncomingCall(data);
       playRingtone();
     });
 
+    // ✅ Call answered
     newSocket.on("call-answered", () => {
       stopRingtone();
       setIncomingCall(null);
     });
 
+    // ❌ Call rejected
     newSocket.on("call-rejected", () => {
       stopRingtone();
       setIncomingCall(null);
       setActiveCall(null);
     });
 
+    // ☎️ Call ended
     newSocket.on("call-ended", () => {
       stopRingtone();
       setIncomingCall(null);
@@ -81,7 +86,7 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
-  // ✅ check auth
+  // 🔐 Check auth
   const checkAuth = async (savedToken) => {
     try {
       api.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
@@ -93,13 +98,12 @@ export const AuthProvider = ({ children }) => {
       } else {
         logout();
       }
-    } catch (err) {
-      console.error("Auth check failed");
+    } catch {
       logout();
     }
   };
 
-  // ✅ login / signup
+  // 🔑 Login / Signup
   const login = async (state, credentials) => {
     if (loggingRef.current) return;
     loggingRef.current = true;
@@ -120,15 +124,14 @@ export const AuthProvider = ({ children }) => {
       } else {
         toast.error(data.message || "Login failed");
       }
-    } catch (err) {
-      console.error("Login error:", err);
+    } catch {
       toast.error("Backend not responding. Check server.");
     } finally {
       loggingRef.current = false;
     }
   };
 
-  // ✅ logout
+  // 🚪 Logout
   const logout = () => {
     localStorage.removeItem("token");
     setToken(null);
@@ -147,7 +150,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 🔁 init on reload
+  // 🔁 Init on reload
   useEffect(() => {
     const savedToken = localStorage.getItem("token");
     if (savedToken) {
@@ -169,6 +172,7 @@ export const AuthProvider = ({ children }) => {
         setIncomingCall,
         activeCall,
         setActiveCall,
+        stopRingtone,
       }}
     >
       {children}
