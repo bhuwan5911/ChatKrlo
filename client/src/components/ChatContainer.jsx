@@ -4,7 +4,7 @@ import { formatMessageTime } from "../lib/utils.js";
 import { ChatContext } from "../../context/ChatContext.jsx";
 import { AuthContext } from "../../context/AuthContext.jsx";
 import IncomingCallPopup from "./IncomingCallPopup.jsx";
-import { Video, PhoneOff } from "lucide-react";
+import { Video, PhoneOff, Mic, MicOff, VideoOff } from "lucide-react";
 
 const ChatContainer = () => {
   const { messages, selectedUser, setSelectedUser, sendMessage, getMessages } =
@@ -22,14 +22,16 @@ const ChatContainer = () => {
 
   const myVideo = useRef(null);
   const userVideo = useRef(null);
+  const remoteAudio = useRef(null);
   const peerRef = useRef(null);
   const streamRef = useRef(null);
   const scrollEnd = useRef(null);
   const pendingIce = useRef([]);
 
   const [input, setInput] = useState("");
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
 
-  // Load messages
   useEffect(() => {
     if (selectedUser) getMessages(selectedUser._id);
   }, [selectedUser]);
@@ -45,7 +47,6 @@ const ChatContainer = () => {
     setInput("");
   };
 
-  // 🎥 Get media
   const getMedia = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -56,28 +57,23 @@ const ChatContainer = () => {
       if (myVideo.current) myVideo.current.srcObject = stream;
       return stream;
     } catch {
-      alert("Camera/Microphone permission denied");
+      alert("Camera or microphone permission denied");
       return null;
     }
   };
 
-  // 🔗 Create peer
   const createPeer = (to) => {
     const peer = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
     peer.onicecandidate = (e) => {
-      if (e.candidate) {
-        socket.emit("ice-candidate", { to, candidate: e.candidate });
-      }
+      if (e.candidate) socket.emit("ice-candidate", { to, candidate: e.candidate });
     };
 
     peer.ontrack = (e) => {
-      if (userVideo.current) {
-        userVideo.current.srcObject = e.streams[0];
-        userVideo.current.play().catch(() => {});
-      }
+      if (userVideo.current) userVideo.current.srcObject = e.streams[0];
+      if (remoteAudio.current) remoteAudio.current.srcObject = e.streams[0];
     };
 
     if (streamRef.current) {
@@ -86,13 +82,16 @@ const ChatContainer = () => {
       );
     }
 
+    pendingIce.current.forEach((c) =>
+      peer.addIceCandidate(new RTCIceCandidate(c))
+    );
+    pendingIce.current = [];
+
     return peer;
   };
 
-  // 📞 Start call
   const startCall = async () => {
-    if (!selectedUser || !socket) return;
-
+    if (!selectedUser) return;
     const stream = await getMedia();
     if (!stream) return;
 
@@ -116,10 +115,7 @@ const ChatContainer = () => {
     });
   };
 
-  // ✅ Accept call
   const acceptCall = async (callData) => {
-    if (!callData || !socket) return;
-
     stopRingtone();
     setIncomingCall(null);
 
@@ -134,23 +130,31 @@ const ChatContainer = () => {
     peerRef.current = peer;
 
     await peer.setRemoteDescription(new RTCSessionDescription(offer));
-
-    // Flush pending ICE
-    pendingIce.current.forEach((c) =>
-      peer.addIceCandidate(new RTCIceCandidate(c))
-    );
-    pendingIce.current = [];
-
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
 
     socket.emit("answer-call", { to: from, answer });
   };
 
-  // ❌ End call
+  const toggleMute = () => {
+    const track = streamRef.current?.getAudioTracks()[0];
+    if (track) {
+      track.enabled = !track.enabled;
+      setIsMuted(!track.enabled);
+    }
+  };
+
+  const toggleVideo = () => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (track) {
+      track.enabled = !track.enabled;
+      setIsVideoOff(!track.enabled);
+    }
+  };
+
   const endCall = () => {
     const toId = activeCall?.user?._id;
-    if (toId && socket) socket.emit("call-ended", { to: toId });
+    if (toId) socket.emit("call-ended", { to: toId });
     cleanup();
   };
 
@@ -158,6 +162,8 @@ const ChatContainer = () => {
     stopRingtone();
     setActiveCall(null);
     setIncomingCall(null);
+    setIsMuted(false);
+    setIsVideoOff(false);
 
     if (peerRef.current) {
       peerRef.current.close();
@@ -171,9 +177,9 @@ const ChatContainer = () => {
 
     if (myVideo.current) myVideo.current.srcObject = null;
     if (userVideo.current) userVideo.current.srcObject = null;
+    if (remoteAudio.current) remoteAudio.current.srcObject = null;
   };
 
-  // 🔌 Socket listeners
   useEffect(() => {
     if (!socket) return;
 
@@ -182,26 +188,17 @@ const ChatContainer = () => {
         await peerRef.current.setRemoteDescription(
           new RTCSessionDescription(answer)
         );
-
-        pendingIce.current.forEach((c) =>
-          peerRef.current.addIceCandidate(new RTCIceCandidate(c))
-        );
-        pendingIce.current = [];
       }
     };
 
     const onIce = async ({ candidate }) => {
-      try {
-        if (peerRef.current?.remoteDescription) {
+      if (peerRef.current) {
+        try {
           await peerRef.current.addIceCandidate(
             new RTCIceCandidate(candidate)
           );
-        } else {
-          pendingIce.current.push(candidate);
-        }
-      } catch (err) {
-        console.error("ICE error:", err);
-      }
+        } catch {}
+      } else pendingIce.current.push(candidate);
     };
 
     const onEnd = () => cleanup();
@@ -219,26 +216,45 @@ const ChatContainer = () => {
     };
   }, [socket]);
 
+  const isOnline =
+    selectedUser &&
+    (onlineUsers.includes(selectedUser._id) ||
+      selectedUser.email === "ai@quickchat.com");
+
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full min-h-0 min-w-0 max-w-full overflow-hidden relative w-full">
       <IncomingCallPopup onAccept={acceptCall} />
 
-      {!activeCall && selectedUser && (
+      {selectedUser && !activeCall && (
         <>
-          <div className="flex items-center gap-3 p-4 bg-[#232135]">
+          {/* Header */}
+          <div className="flex items-center gap-3 p-4 bg-[#232135] border-b border-white/10 shrink-0">
             <img
               src={selectedUser.profilePic || assets.avatar_icon}
-              className="w-10 h-10 rounded-full"
+              className="w-10 h-10 rounded-full object-cover"
             />
-            <h3 className="text-white flex-1 truncate">
+            <h3 className="text-white font-semibold flex-1 truncate">
               {selectedUser.fullName}
             </h3>
-            <button onClick={startCall} className="text-violet-400">
-              <Video />
-            </button>
+
+            {isOnline && (
+              <button
+                onClick={startCall}
+                className="p-2 hover:bg-white/10 rounded-full text-violet-400"
+              >
+                <Video size={20} />
+              </button>
+            )}
+
+            <img
+              src={assets.arrow_icon}
+              onClick={() => setSelectedUser(null)}
+              className="w-6 md:hidden invert cursor-pointer"
+            />
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 min-w-0">
             {messages.map((msg, i) => {
               const mine = msg.senderId === authUser._id;
               return (
@@ -247,12 +263,14 @@ const ChatContainer = () => {
                   className={`flex ${mine ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`px-4 py-2 rounded-xl ${
+                    className={`px-4 py-2 rounded-2xl text-sm max-w-[75%] break-words ${
                       mine ? "bg-violet-600" : "bg-[#2e2b3e]"
                     } text-white`}
                   >
-                    {msg.text}
-                    <div className="text-xs text-gray-400">
+                    <div className="whitespace-pre-wrap break-words">
+                      {msg.text}
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-1">
                       {formatMessageTime(msg.createdAt)}
                     </div>
                   </div>
@@ -262,12 +280,16 @@ const ChatContainer = () => {
             <div ref={scrollEnd}></div>
           </div>
 
-          <form onSubmit={handleSendMessage} className="p-4 flex gap-2">
+          {/* Input */}
+          <form
+            onSubmit={handleSendMessage}
+            className="p-4 flex gap-2 bg-[#232135] shrink-0"
+          >
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              className="flex-1 bg-white/10 rounded-xl px-4 py-2 text-white"
-              placeholder="Type..."
+              className="flex-1 min-w-0 bg-white/10 rounded-xl px-4 py-2 text-white outline-none"
+              placeholder="Type a message..."
             />
             <button className="bg-violet-600 px-4 rounded-xl text-white">
               Send
@@ -278,22 +300,51 @@ const ChatContainer = () => {
 
       {/* 🎥 Call UI */}
       {activeCall && (
-        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40">
-          <video ref={userVideo} autoPlay playsInline className="w-96 h-72" />
-          <video
-            ref={myVideo}
-            autoPlay
-            muted
-            playsInline
-            className="w-40 h-32 mt-4"
-          />
+        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-50 p-4">
+          <div className="relative w-full max-w-4xl aspect-video bg-black rounded-xl overflow-hidden">
+            <video
+              ref={userVideo}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+            />
+            <audio ref={remoteAudio} autoPlay />
 
-          <button
-            onClick={endCall}
-            className="mt-6 bg-red-500 p-3 rounded-full text-white"
-          >
-            <PhoneOff />
-          </button>
+            <video
+              ref={myVideo}
+              autoPlay
+              muted
+              playsInline
+              className="hidden"
+            />
+          </div>
+
+          <div className="flex gap-4 mt-6">
+            <button
+              onClick={toggleMute}
+              className={`p-4 rounded-full ${
+                isMuted ? "bg-red-500" : "bg-gray-700"
+              } text-white`}
+            >
+              {isMuted ? <MicOff /> : <Mic />}
+            </button>
+
+            <button
+              onClick={toggleVideo}
+              className={`p-4 rounded-full ${
+                isVideoOff ? "bg-red-500" : "bg-gray-700"
+              } text-white`}
+            >
+              {isVideoOff ? <VideoOff /> : <Video />}
+            </button>
+
+            <button
+              onClick={endCall}
+              className="p-4 rounded-full bg-red-500 text-white"
+            >
+              <PhoneOff />
+            </button>
+          </div>
         </div>
       )}
     </div>

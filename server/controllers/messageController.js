@@ -5,7 +5,13 @@ import { getReceiverSocketId, io } from "../lib/socket.js";
 import Groq from "groq-sdk";
 import dotenv from "dotenv";
 
+// 1. Initialize dotenv immediately
 dotenv.config();
+
+// 2. Defensive Check: Check if key exists before initializing Groq
+if (!process.env.GROQ_API_KEY) {
+    console.error("❌ ERROR: GROQ_API_KEY is missing from your .env file!");
+}
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const BOT_ID = process.env.BOT_ID;
@@ -73,11 +79,9 @@ export const sendMessage = async (req, res) => {
 
     await newMessage.save();
 
-    // ✅ Group
     if (groupId) {
       io.to(groupId).emit("newMessage", newMessage);
     } 
-    // ✅ Private
     else {
       const socketId = getReceiverSocketId(receiverId);
       if (socketId) io.to(socketId).emit("newMessage", newMessage);
@@ -93,7 +97,7 @@ export const sendMessage = async (req, res) => {
   }
 };
 
-// ✅ CLEAR PRIVATE CHAT (THIS FIXES YOUR ERROR)
+// ✅ Clear private chat
 export const clearPrivateChat = async (req, res) => {
   try {
     const myId = req.user._id;
@@ -112,9 +116,14 @@ export const clearPrivateChat = async (req, res) => {
   }
 };
 
-// ✅ FAST BOT REPLY (max 2 sec)
+// ✅ FAST BOT REPLY (Optimized Error Handling)
 async function handleAiResponse(text, senderId) {
   try {
+    // If key is missing, don't even try to call the API
+    if (!process.env.GROQ_API_KEY) {
+        throw new Error("API Key is missing in environment variables");
+    }
+
     const aiPromise = groq.chat.completions.create({
       messages: [{ role: "user", content: text || "Hello" }],
       model: "llama-3.1-8b-instant",
@@ -141,6 +150,7 @@ async function handleAiResponse(text, senderId) {
     const socketId = getReceiverSocketId(senderId);
     if (socketId) io.to(socketId).emit("newMessage", botMessage);
   } catch (err) {
-    console.error("Bot error:", err.message);
+    // This will now catch the 401 and log it clearly
+    console.error("🤖 Bot Error:", err.message);
   }
 }

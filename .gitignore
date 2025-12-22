@@ -1,4 +1,2 @@
-node_modules
-server/.env
 .env
-
+node_modules
