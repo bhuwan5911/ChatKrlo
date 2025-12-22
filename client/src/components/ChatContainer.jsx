@@ -4,14 +4,7 @@ import { formatMessageTime } from "../lib/utils.js";
 import { ChatContext } from "../../context/ChatContext.jsx";
 import { AuthContext } from "../../context/AuthContext.jsx";
 import IncomingCallPopup from "./IncomingCallPopup.jsx";
-import {
-  Users,
-  Info,
-  Video,
-  PhoneOff,
-  Maximize2,
-  Minimize2,
-} from "lucide-react";
+import { Video, PhoneOff } from "lucide-react";
 
 const ChatContainer = () => {
   const { messages, selectedUser, setSelectedUser, sendMessage, getMessages } =
@@ -24,6 +17,7 @@ const ChatContainer = () => {
     activeCall,
     setActiveCall,
     stopRingtone,
+    setIncomingCall,
   } = useContext(AuthContext);
 
   const myVideo = useRef(null);
@@ -31,11 +25,11 @@ const ChatContainer = () => {
   const peerRef = useRef(null);
   const streamRef = useRef(null);
   const scrollEnd = useRef(null);
+  const pendingIce = useRef([]);
 
   const [input, setInput] = useState("");
-  const [isFull, setIsFull] = useState(false);
 
-  // ---------------- Chat ----------------
+  // Load messages
   useEffect(() => {
     if (selectedUser) getMessages(selectedUser._id);
   }, [selectedUser]);
@@ -51,17 +45,23 @@ const ChatContainer = () => {
     setInput("");
   };
 
-  // ---------------- Media ----------------
+  // 🎥 Get media
   const getMedia = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
-    streamRef.current = stream;
-    if (myVideo.current) myVideo.current.srcObject = stream;
-    return stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      streamRef.current = stream;
+      if (myVideo.current) myVideo.current.srcObject = stream;
+      return stream;
+    } catch {
+      alert("Camera/Microphone permission denied");
+      return null;
+    }
   };
 
+  // 🔗 Create peer
   const createPeer = (to) => {
     const peer = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -80,20 +80,24 @@ const ChatContainer = () => {
       }
     };
 
-    streamRef.current?.getTracks().forEach((track) => {
-      peer.addTrack(track, streamRef.current);
-    });
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) =>
+        peer.addTrack(t, streamRef.current)
+      );
+    }
 
     return peer;
   };
 
-  // ---------------- Start Call (Caller) ----------------
+  // 📞 Start call
   const startCall = async () => {
     if (!selectedUser || !socket) return;
 
+    const stream = await getMedia();
+    if (!stream) return;
+
     setActiveCall({ user: selectedUser });
 
-    await getMedia();
     const peer = createPeer(selectedUser._id);
     peerRef.current = peer;
 
@@ -112,21 +116,30 @@ const ChatContainer = () => {
     });
   };
 
-  // ---------------- Accept Call (Receiver) ----------------
+  // ✅ Accept call
   const acceptCall = async (callData) => {
     if (!callData || !socket) return;
 
     stopRingtone();
+    setIncomingCall(null);
 
     const { from, caller, offer } = callData;
 
-    setActiveCall({ user: caller }); // show video UI
+    const stream = await getMedia();
+    if (!stream) return;
 
-    await getMedia();
+    setActiveCall({ user: caller });
+
     const peer = createPeer(from);
     peerRef.current = peer;
 
-    await peer.setRemoteDescription(offer);
+    await peer.setRemoteDescription(new RTCSessionDescription(offer));
+
+    // Flush pending ICE
+    pendingIce.current.forEach((c) =>
+      peer.addIceCandidate(new RTCIceCandidate(c))
+    );
+    pendingIce.current = [];
 
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
@@ -134,133 +147,112 @@ const ChatContainer = () => {
     socket.emit("answer-call", { to: from, answer });
   };
 
-  // ---------------- End Call ----------------
+  // ❌ End call
   const endCall = () => {
     const toId = activeCall?.user?._id;
-    if (toId) socket.emit("call-ended", { to: toId });
+    if (toId && socket) socket.emit("call-ended", { to: toId });
     cleanup();
   };
 
   const cleanup = () => {
     stopRingtone();
     setActiveCall(null);
+    setIncomingCall(null);
 
-    peerRef.current?.close();
-    peerRef.current = null;
+    if (peerRef.current) {
+      peerRef.current.close();
+      peerRef.current = null;
+    }
 
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
 
     if (myVideo.current) myVideo.current.srcObject = null;
     if (userVideo.current) userVideo.current.srcObject = null;
   };
 
-  // ---------------- Socket listeners ----------------
+  // 🔌 Socket listeners
   useEffect(() => {
     if (!socket) return;
 
-    socket.on("call-answered", async ({ answer }) => {
+    const onAnswered = async ({ answer }) => {
       if (peerRef.current) {
-        await peerRef.current.setRemoteDescription(answer);
-      }
-    });
+        await peerRef.current.setRemoteDescription(
+          new RTCSessionDescription(answer)
+        );
 
-    socket.on("call-ended", cleanup);
-    socket.on("call-rejected", cleanup);
-
-    socket.on("ice-candidate", async ({ candidate }) => {
-      if (peerRef.current && candidate) {
-        await peerRef.current.addIceCandidate(candidate);
+        pendingIce.current.forEach((c) =>
+          peerRef.current.addIceCandidate(new RTCIceCandidate(c))
+        );
+        pendingIce.current = [];
       }
-    });
+    };
+
+    const onIce = async ({ candidate }) => {
+      try {
+        if (peerRef.current?.remoteDescription) {
+          await peerRef.current.addIceCandidate(
+            new RTCIceCandidate(candidate)
+          );
+        } else {
+          pendingIce.current.push(candidate);
+        }
+      } catch (err) {
+        console.error("ICE error:", err);
+      }
+    };
+
+    const onEnd = () => cleanup();
+
+    socket.on("call-answered", onAnswered);
+    socket.on("ice-candidate", onIce);
+    socket.on("call-ended", onEnd);
+    socket.on("call-rejected", onEnd);
 
     return () => {
-      socket.off("call-answered");
-      socket.off("call-ended");
-      socket.off("call-rejected");
-      socket.off("ice-candidate");
+      socket.off("call-answered", onAnswered);
+      socket.off("ice-candidate", onIce);
+      socket.off("call-ended", onEnd);
+      socket.off("call-rejected", onEnd);
     };
   }, [socket]);
 
-  const isOnline =
-    selectedUser &&
-    (onlineUsers.includes(selectedUser._id) ||
-      selectedUser.email === "ai@quickchat.com");
-
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden relative">
-      {/* ✅ Incoming Call Popup */}
+    <div className="flex flex-col h-full relative">
       <IncomingCallPopup onAccept={acceptCall} />
 
-      {/* No chat selected */}
-      {!selectedUser && !activeCall && (
-        <div className="flex-1 flex items-center justify-center text-white max-md:hidden">
-          Select a chat to start
-        </div>
-      )}
-
-      {/* Chat UI */}
-      {selectedUser && (
+      {!activeCall && selectedUser && (
         <>
-          {/* Header */}
-          <div className="flex items-center gap-3 p-4 border-b border-white/10 bg-[#232135]">
-            {selectedUser.isGroup ? (
-              <Users className="text-violet-400" />
-            ) : (
-              <div className="relative">
-                <img
-                  src={selectedUser.profilePic || assets.avatar_icon}
-                  className="w-10 h-10 rounded-full"
-                />
-                {isOnline && (
-                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-[#232135] rounded-full"></span>
-                )}
-              </div>
-            )}
-
-            <h3 className="text-white font-bold flex-1 truncate">
-              {selectedUser.isGroup
-                ? selectedUser.name
-                : selectedUser.fullName}
-            </h3>
-
-            {!selectedUser.isGroup && (
-              <button
-                onClick={startCall}
-                className="p-2 hover:bg-white/10 rounded-full text-violet-400"
-              >
-                <Video />
-              </button>
-            )}
-
-            <Info className="text-gray-400" />
+          <div className="flex items-center gap-3 p-4 bg-[#232135]">
             <img
-              src={assets.arrow_icon}
-              onClick={() => setSelectedUser(null)}
-              className="w-6 md:hidden invert cursor-pointer"
+              src={selectedUser.profilePic || assets.avatar_icon}
+              className="w-10 h-10 rounded-full"
             />
+            <h3 className="text-white flex-1 truncate">
+              {selectedUser.fullName}
+            </h3>
+            <button onClick={startCall} className="text-violet-400">
+              <Video />
+            </button>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#1a1829]/30">
+          <div className="flex-1 overflow-y-auto p-4">
             {messages.map((msg, i) => {
               const mine = msg.senderId === authUser._id;
               return (
                 <div
                   key={i}
-                  className={`flex ${
-                    mine ? "justify-end" : "justify-start"
-                  }`}
+                  className={`flex ${mine ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`px-4 py-2 rounded-2xl text-sm max-w-[70%] ${
-                      mine
-                        ? "bg-violet-600 text-white"
-                        : "bg-[#2e2b3e] text-white"
-                    }`}
+                    className={`px-4 py-2 rounded-xl ${
+                      mine ? "bg-violet-600" : "bg-[#2e2b3e]"
+                    } text-white`}
                   >
                     {msg.text}
-                    <div className="text-[10px] text-gray-400 mt-1">
+                    <div className="text-xs text-gray-400">
                       {formatMessageTime(msg.createdAt)}
                     </div>
                   </div>
@@ -270,61 +262,38 @@ const ChatContainer = () => {
             <div ref={scrollEnd}></div>
           </div>
 
-          {/* Input */}
-          <form
-            onSubmit={handleSendMessage}
-            className="p-4 flex gap-2 bg-[#232135]"
-          >
+          <form onSubmit={handleSendMessage} className="p-4 flex gap-2">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              className="flex-1 bg-white/10 rounded-xl px-4 py-2 text-white outline-none"
-              placeholder="Type message..."
+              className="flex-1 bg-white/10 rounded-xl px-4 py-2 text-white"
+              placeholder="Type..."
             />
-            <button
-              type="submit"
-              className="bg-violet-600 px-4 rounded-xl text-white"
-            >
+            <button className="bg-violet-600 px-4 rounded-xl text-white">
               Send
             </button>
           </form>
         </>
       )}
 
-      {/* ✅ Video Call UI */}
+      {/* 🎥 Call UI */}
       {activeCall && (
         <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40">
-          <div className={`flex gap-4 ${isFull ? "flex-col" : ""}`}>
-            <video
-              ref={userVideo}
-              autoPlay
-              playsInline
-              className="w-72 h-52 rounded bg-black"
-            />
-            <video
-              ref={myVideo}
-              autoPlay
-              muted
-              playsInline
-              className="w-40 h-32 rounded bg-black"
-            />
-          </div>
+          <video ref={userVideo} autoPlay playsInline className="w-96 h-72" />
+          <video
+            ref={myVideo}
+            autoPlay
+            muted
+            playsInline
+            className="w-40 h-32 mt-4"
+          />
 
-          <div className="flex gap-4 mt-4">
-            <button
-              onClick={() => setIsFull((p) => !p)}
-              className="bg-gray-600 p-3 rounded-full text-white"
-            >
-              {isFull ? <Minimize2 /> : <Maximize2 />}
-            </button>
-
-            <button
-              onClick={endCall}
-              className="bg-red-500 p-3 rounded-full text-white"
-            >
-              <PhoneOff />
-            </button>
-          </div>
+          <button
+            onClick={endCall}
+            className="mt-6 bg-red-500 p-3 rounded-full text-white"
+          >
+            <PhoneOff />
+          </button>
         </div>
       )}
     </div>

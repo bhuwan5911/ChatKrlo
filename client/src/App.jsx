@@ -5,7 +5,6 @@ import LoginPage from "./pages/LoginPage";
 import ProfilePage from "./pages/ProfilePage";
 import { Toaster } from "react-hot-toast";
 import { AuthContext } from "../context/AuthContext";
-import IncomingCallPopup from "./components/IncomingCallPopup";
 
 const App = () => {
   const { authUser } = useContext(AuthContext);
@@ -14,8 +13,7 @@ const App = () => {
     <div className="bg-[url('/bg.png')] bg-contain bg-fixed h-screen w-full overflow-hidden">
       <Toaster position="top-center" />
 
-      {/* ✅ ONLY GLOBAL POPUP */}
-      <IncomingCallPopup />
+      {/* ❌ REMOVED IncomingCallPopup from here */}
 
       <Routes>
         <Route
