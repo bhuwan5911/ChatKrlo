@@ -73,6 +73,36 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
+  // ✅ LOGIN / SIGNUP FUNCTION (THIS WAS MISSING)
+  const login = async (type, userData) => {
+    try {
+      const url =
+        type === "signup" ? "/api/auth/signup" : "/api/auth/login";
+
+      const { data } = await api.post(url, userData);
+
+      if (data.success) {
+        localStorage.setItem("token", data.token);
+        setToken(data.token);
+        setAuthUser(data.user);
+
+        api.defaults.headers.common[
+          "Authorization"
+        ] = `Bearer ${data.token}`;
+
+        connectSocket(data.user);
+      } else {
+        alert(data.message || "Authentication failed");
+      }
+    } catch (err) {
+      console.error("Auth error:", err);
+      alert(
+        err?.response?.data?.message ||
+          "Something went wrong. Try again."
+      );
+    }
+  };
+
   const checkAuth = async (savedToken) => {
     try {
       api.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
@@ -110,6 +140,23 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  const updateProfile = async (data) => {
+    try {
+      const res = await api.put("/api/auth/update-profile", data);
+      if (res.data.success) {
+        setAuthUser(res.data.user);
+        return true;
+      } else {
+        alert(res.data.message || "Failed to update profile");
+        return false;
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err?.response?.data?.message || "Error updating profile");
+      return false;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -123,7 +170,9 @@ export const AuthProvider = ({ children }) => {
         setActiveCall,
         playRingtone,
         stopRingtone,
+        login,     // ✅ NOW PROVIDED
         logout,
+        updateProfile,
       }}
     >
       {children}

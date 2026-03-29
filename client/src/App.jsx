@@ -10,7 +10,6 @@ const App = () => {
   const { authUser } = useContext(AuthContext);
 
   return (
-    // ✅ ADDED: flex flex-col to force internal components to respect h-screen
     <div className="bg-[url('/bg.png')] bg-contain bg-fixed h-screen w-full overflow-hidden flex flex-col">
       <Toaster position="top-center" />
 

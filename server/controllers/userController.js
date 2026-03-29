@@ -2,7 +2,7 @@ import { generateToken } from "../lib/utils.js";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
-import redisClient from "../lib/redis.js";
+import { io } from "../lib/socket.js";
 
 // Signup a new user
 export const signup = async (req, res) => {
@@ -29,12 +29,6 @@ export const signup = async (req, res) => {
     });
 
     const token = generateToken(newUser._id);
-
-    // --- CACHE PRE-WARMING ---
-    const cacheKey = `user:${newUser._id}`;
-    await redisClient.setEx(cacheKey, 3600, JSON.stringify(newUser));
-    console.log(`🔥 Cache Pre-warmed for new user: ${newUser._id}`);
-    // -------------------------
 
     res.json({
       success: true,
@@ -65,12 +59,6 @@ export const login = async (req, res) => {
     }
 
     const token = generateToken(userData._id);
-
-    // --- CACHE WARMING ---
-    const cacheKey = `user:${userData._id}`;
-    await redisClient.setEx(cacheKey, 3600, JSON.stringify(userData));
-    console.log(`🔥 Cache Warmed on Login for user: ${userData._id}`);
-    // ---------------------
 
     res.json({
       success: true,
@@ -113,16 +101,8 @@ export const updateProfile = async (req, res) => {
       );
     }
 
-    // --- CACHE INVALIDATION ---
-    const cacheKey = `user:${userId}`;
-    console.log("🗑️ CACHE INVALIDATION: Deleting", cacheKey);
-    await redisClient.del(cacheKey);
-    // -------------------------
-
-    // --- PUBSUB PUBLISH ---
-    console.log("📢 PUBSUB: Publishing profile update to 'user-updates'");
-    await redisClient.publish("user-updates", JSON.stringify(updatedUser));
-    // ---------------------
+    // --- Socket Publish ---
+    io.emit("profile-updated", updatedUser);
 
     res.json({ success: true, user: updatedUser });
   } catch (error) {
@@ -131,31 +111,16 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-// Controller to get user by ID (Cache-Aside Pattern)
+// Controller to get user by ID
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const cacheKey = `user:${id}`;
 
-    // 1. Check Cache
-    const cachedUser = await redisClient.get(cacheKey);
-
-    if (cachedUser) {
-      // CACHE HIT
-      console.log(`✅ CACHE HIT: Data found in Redis for ${id}`);
-      return res.status(200).json(JSON.parse(cachedUser));
-    }
-
-    // 2. Cache Miss - Fetch from DB
-    console.log(`❌ CACHE MISS: Fetching from MongoDB for ${id}`);
     const user = await User.findById(id).select("-password");
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-
-    // 3. Save to Cache
-    await redisClient.setEx(cacheKey, 3600, JSON.stringify(user));
 
     res.status(200).json(user);
   } catch (error) {

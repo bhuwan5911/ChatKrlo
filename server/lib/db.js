@@ -1,4 +1,4 @@
-// File: server/lib/db.js
+
 
 import mongoose from "mongoose";
 

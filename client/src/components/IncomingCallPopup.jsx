@@ -28,8 +28,8 @@ const IncomingCallPopup = ({ onAccept = () => {} }) => {
     console.log("Accept clicked");
 
     stopRingtone();
-    setIncomingCall(null);   // ✅ CLOSE POPUP ALWAYS
-    await onAccept(incomingCall); // try to start call
+    setIncomingCall(null);   
+    await onAccept(incomingCall); 
   };
 
   const handleReject = () => {
